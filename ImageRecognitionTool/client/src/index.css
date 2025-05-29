@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 36 6% 97%; /* #F5F5F4 - stone-50 */
+  --foreground: 20 14.3% 4.1%;
+  --muted: 60 4.8% 95.9%;
+  --muted-foreground: 25 5.3% 44.7%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 20 14.3% 4.1%;
+  --card: 0 0% 100%;
+  --card-foreground: 20 14.3% 4.1%;
+  --border: 20 5.9% 90%;
+  --input: 20 5.9% 90%;
+  --primary: 142 76% 36%; /* #16a34a - crop-600 */
+  --primary-foreground: 355 7% 97%;
+  --secondary: 60 4.8% 95.9%;
+  --secondary-foreground: 24 9.8% 10%;
+  --accent: 60 4.8% 95.9%;
+  --accent-foreground: 24 9.8% 10%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 60 9.1% 97.8%;
+  --ring: 20 14.3% 4.1%;
+  --radius: 0.75rem;
+
+  /* Custom irrigation system colors */
+  --crop-50: 120 60% 97%; /* #f0fdf4 */
+  --crop-500: 142 76% 47%; /* #22c55e */
+  --crop-600: 142 76% 36%; /* #16a34a */
+  --crop-700: 142 72% 29%; /* #15803d */
+
+  --soil-50: 54 92% 95%; /* #fefce8 */
+  --soil-500: 32 95% 44%; /* #d97706 */
+  --soil-600: 32 95% 44%; /* #ea580c */
+  --soil-700: 24 84% 53%; /* #c2410c */
+
+  --water-50: 214 100% 97%; /* #eff6ff */
+  --water-500: 217 91% 60%; /* #3b82f6 */
+  --water-600: 221 83% 53%; /* #2563eb */
+  --water-700: 224 76% 48%; /* #1d4ed8 */
+}
+
+.dark {
+  --background: 240 10% 3.9%;
+  --foreground: 0 0% 98%;
+  --muted: 240 3.7% 15.9%;
+  --muted-foreground: 240 5% 64.9%;
+  --popover: 240 10% 3.9%;
+  --popover-foreground: 0 0% 98%;
+  --card: 240 10% 3.9%;
+  --card-foreground: 0 0% 98%;
+  --border: 240 3.7% 15.9%;
+  --input: 240 3.7% 15.9%;
+  --primary: 142 76% 36%;
+  --primary-foreground: 355 7% 97%;
+  --secondary: 240 3.7% 15.9%;
+  --secondary-foreground: 0 0% 98%;
+  --accent: 240 3.7% 15.9%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 0 0% 98%;
+  --ring: 240 4.9% 83.9%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-stone-50 text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+}
+
+@layer utilities {
+  .text-crop-50 { color: hsl(var(--crop-50)); }
+  .text-crop-500 { color: hsl(var(--crop-500)); }
+  .text-crop-600 { color: hsl(var(--crop-600)); }
+  .text-crop-700 { color: hsl(var(--crop-700)); }
+  
+  .bg-crop-50 { background-color: hsl(var(--crop-50)); }
+  .bg-crop-100 { background-color: hsl(120 60% 95%); }
+  .bg-crop-500 { background-color: hsl(var(--crop-500)); }
+  .bg-crop-600 { background-color: hsl(var(--crop-600)); }
+  .bg-crop-700 { background-color: hsl(var(--crop-700)); }
+  
+  .text-soil-500 { color: hsl(var(--soil-500)); }
+  .text-soil-600 { color: hsl(var(--soil-600)); }
+  .text-soil-700 { color: hsl(var(--soil-700)); }
+  
+  .bg-soil-50 { background-color: hsl(var(--soil-50)); }
+  .bg-soil-600 { background-color: hsl(var(--soil-600)); }
+  
+  .text-water-500 { color: hsl(var(--water-500)); }
+  .text-water-600 { color: hsl(var(--water-600)); }
+  .text-water-700 { color: hsl(var(--water-700)); }
+  
+  .bg-water-50 { background-color: hsl(var(--water-50)); }
+  .bg-water-600 { background-color: hsl(var(--water-600)); }
+}
