@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { MessageCircle, Send, Bot, User, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ export default function AIChatbot({ forecastData }: AIChatbotProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      content: '你好！我是你的AI种植助手。我可以根据你的灌溉预测数据提供个性化的种植建议。有什么关于农作物种植、土壤管理或灌溉的问题吗？',
+      content: 'Hello! I am your AI planting assistant. I can provide personalized planting suggestions based on your irrigation forecast data. Do you have any questions about crop planting, soil management, or irrigation?',
       role: 'assistant',
       timestamp: new Date()
     }
@@ -31,6 +31,11 @@ export default function AIChatbot({ forecastData }: AIChatbotProps) {
   const [inputMessage, setInputMessage] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const { toast } = useToast();
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const chatMutation = useMutation({
     mutationFn: async (message: string) => {
@@ -60,8 +65,8 @@ export default function AIChatbot({ forecastData }: AIChatbotProps) {
     },
     onError: (error: any) => {
       toast({
-        title: "聊天失败",
-        description: error.message || "无法获取AI回复，请稍后重试",
+        title: "fail",
+        description: error.message || "Unable to get AI response, please try again later",
         variant: "destructive",
       });
     }
@@ -110,7 +115,7 @@ export default function AIChatbot({ forecastData }: AIChatbotProps) {
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm flex items-center">
                   <Bot className="h-4 w-4 mr-2" />
-                  AI种植助手
+                  AI Planting Assistant
                 </CardTitle>
                 <Button
                   variant="ghost"
@@ -122,30 +127,19 @@ export default function AIChatbot({ forecastData }: AIChatbotProps) {
                 </Button>
               </div>
             </CardHeader>
-            
-            <CardContent className="flex-1 flex flex-col p-0">
+
+            <CardContent className="flex-1 flex flex-col p-0 min-h-0">
               {/* Messages Area */}
-              <ScrollArea className="flex-1 p-4">
+              <ScrollArea className="flex-1 overflow-y-auto p-4">
                 <div className="space-y-4">
                   {messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div
-                        className={`max-w-[80%] rounded-lg p-3 text-sm ${
-                          message.role === 'user'
-                            ? 'bg-crop-600 text-white'
-                            : 'bg-gray-100 text-gray-800'
-                        }`}
-                      >
+                    <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[80%] rounded-lg p-3 text-sm ${
+                        message.role === 'user' ? 'bg-crop-600 text-white' : 'bg-gray-100 text-gray-800'
+                      }`}>
                         <div className="flex items-start space-x-2">
-                          {message.role === 'assistant' && (
-                            <Bot className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                          )}
-                          {message.role === 'user' && (
-                            <User className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                          )}
+                          {message.role === 'assistant' && <Bot className="h-4 w-4 mt-0.5 flex-shrink-0" />}
+                          {message.role === 'user' && <User className="h-4 w-4 mt-0.5 flex-shrink-0" />}
                           <div className="whitespace-pre-wrap">{message.content}</div>
                         </div>
                       </div>
@@ -157,22 +151,23 @@ export default function AIChatbot({ forecastData }: AIChatbotProps) {
                         <div className="flex items-center space-x-2">
                           <Bot className="h-4 w-4" />
                           <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>正在思考...</span>
+                          <span>wandering...</span>
                         </div>
                       </div>
                     </div>
                   )}
+                  <div ref={bottomRef} />
                 </div>
               </ScrollArea>
 
               {/* Input Area */}
-              <div className="border-t p-3">
+              <div className="border-t p-3 bg-white">
                 <div className="flex space-x-2">
                   <Input
                     value={inputMessage}
                     onChange={(e) => setInputMessage(e.target.value)}
                     onKeyPress={handleKeyPress}
-                    placeholder="输入你的种植问题..."
+                    placeholder="Enter your planting question..."
                     disabled={chatMutation.isPending}
                     className="flex-1 text-sm"
                   />

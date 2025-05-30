@@ -45,11 +45,21 @@ const forecastPeriodOptions = [
   { value: 2, label: "Next 2 days" },
   { value: 3, label: "Next 3 days" },
   { value: 5, label: "Next 5 days" },
+  { value: 7, label: "Next 7 days" },
 ];
 
 export default function IrrigationForm({ onForecastComplete, onLoadingChange }: IrrigationFormProps) {
   const { toast } = useToast();
   const [isLocating, setIsLocating] = useState(false);
+  const easternDate = new Date(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date())
+  );
+  const yyyyMMddET = easternDate.toISOString().split("T")[0];
   
   const form = useForm({
     resolver: zodResolver(insertIrrigationForecastSchema),
@@ -57,7 +67,7 @@ export default function IrrigationForm({ onForecastComplete, onLoadingChange }: 
       latitude: 40.7128,
       longitude: -74.0060,
       cropType: "wheat",
-      plantingDate: "2024-03-15",
+      plantingDate: yyyyMMddET,
       forecastPeriod: 3,
     },
   });
@@ -87,52 +97,43 @@ export default function IrrigationForm({ onForecastComplete, onLoadingChange }: 
 
   const getCurrentLocation = () => {
     setIsLocating(true);
-    
+  
     if (!navigator.geolocation) {
+      form.setValue("latitude", 40.7128);
+      form.setValue("longitude", -74.0060);
       toast({
-        title: "定位不可用",
-        description: "您的浏览器不支持地理定位功能",
-        variant: "destructive",
+        title: "Geolocation Unsupported",
+        description: "Using default location: New York City (40.7128, -74.0060).",
       });
       setIsLocating(false);
       return;
     }
-
+  
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
         form.setValue("latitude", parseFloat(latitude.toFixed(6)));
         form.setValue("longitude", parseFloat(longitude.toFixed(6)));
         toast({
-          title: "定位成功",
-          description: `已获取您的当前位置: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
+          title: "Location Acquired",
+          description: `Your current location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
         });
         setIsLocating(false);
       },
-      (error) => {
-        let message = "无法获取位置信息";
-        switch (error.code) {
-          case error.PERMISSION_DENIED:
-            message = "用户拒绝了定位请求";
-            break;
-          case error.POSITION_UNAVAILABLE:
-            message = "位置信息不可用";
-            break;
-          case error.TIMEOUT:
-            message = "定位请求超时";
-            break;
-        }
+      () => {
+        form.setValue("latitude", 40.7128);
+        form.setValue("longitude", -74.0060);
         toast({
-          title: "定位失败",
-          description: message,
-          variant: "destructive",
+          title: "Location Failed",
+          description: "Unable to retrieve location. Defaulting to New York City (40.7128, -74.0060).",
+          variant: "default", // 可选：用 "destructive" 会变红色提示
         });
         setIsLocating(false);
       },
       {
         enableHighAccuracy: true,
         timeout: 10000,
-        maximumAge: 300000
+        maximumAge: 300000,
       }
     );
   };
@@ -167,7 +168,7 @@ export default function IrrigationForm({ onForecastComplete, onLoadingChange }: 
                   className="text-xs"
                 >
                   <Navigation className="h-3 w-3 mr-1" />
-                  {isLocating ? "定位中..." : "获取当前位置"}
+                  {isLocating ? "Locating..." : "Get Current Location"}
                 </Button>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -250,7 +251,7 @@ export default function IrrigationForm({ onForecastComplete, onLoadingChange }: 
                 <FormItem>
                   <FormLabel className="text-sm font-medium text-gray-700">Planting Start Date</FormLabel>
                   <FormControl>
-                    <Input type="date" {...field} />
+                    <Input type="date" {...field} disabled readOnly/>
                   </FormControl>
                   <FormMessage />
                 </FormItem>

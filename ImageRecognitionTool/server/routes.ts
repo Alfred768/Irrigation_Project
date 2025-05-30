@@ -3,6 +3,65 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertIrrigationForecastSchema, cropThresholds, soilTypes } from "@shared/schema";
 import { z } from "zod";
+const AGRO_API_KEY = "ca01c833004206b018aa226e8cc72131"; // 请用你自己的key
+
+// 自动生成一个小方形多边形坐标（示范）
+function generateSquarePolygon(lat: number, lon: number, sizeInMeters = 50) {
+  const delta = sizeInMeters / 111000;
+  return [
+    [lat - delta, lon - delta],
+    [lat + delta, lon - delta],
+    [lat + delta, lon + delta],
+    [lat - delta, lon + delta],
+    [lat - delta, lon - delta], // 闭合首尾
+  ];
+}
+
+async function createPolygon(lat: number, lon: number): Promise<string> {
+  const polygonCoordinates = generateSquarePolygon(lat, lon);
+  const geojson = {
+    type: "Feature",
+    properties: {},
+    geometry: {
+      type: "Polygon",
+      coordinates: [polygonCoordinates],
+    },
+  };
+
+  const response = await fetch(
+    `http://api.agromonitoring.com/agro/1.0/polygons?appid=${AGRO_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: `Field_${lat.toFixed(4)}_${lon.toFixed(4)}`,
+        geo_json: geojson,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to create polygon: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data.id; // 返回polyid
+}
+
+async function fetchSoilMoistureByPolyId(polyid: string): Promise<number | null> {
+  const response = await fetch(
+    `http://api.agromonitoring.com/agro/1.0/soil?polyid=${polyid}&appid=${AGRO_API_KEY}`
+  );
+
+  if (!response.ok) {
+    console.warn("Failed to fetch soil data", response.statusText);
+    return null;
+  }
+
+  const data = await response.json();
+  // moisture 返回单位是 m3/m3，转为百分比乘以100
+  return data.moisture ? data.moisture * 100 : null;
+}
 
 interface WeatherApiResponse {
   list: Array<{
@@ -20,81 +79,45 @@ interface WeatherApiResponse {
 
 async function fetchWeatherData(latitude: number, longitude: number, days: number) {
   const apiKey = "8df5093cf8154b18cf2cda27f8e16193";
-  // const apiKey = process.env.OPENWEATHER_API_KEY || process.env.WEATHER_API_KEY || "demo_key";
-  
-  // if (apiKey === "demo_key") {
-  //   throw new Error("Weather API key not configured. Please set OPENWEATHER_API_KEY environment variable.");
-  // }
+  const url = `https://api.openweathermap.org/data/2.5/forecast/daily?lat=${latitude}&lon=${longitude}&cnt=${days}&appid=${apiKey}&units=metric`;
 
-  const url = `https://api.openweathermap.org/data/2.0/forecast?lat=${latitude}&lon=${longitude}&appid=${apiKey}&units=metric`;
-  
   const response = await fetch(url);
   if (!response.ok) {
-    if (response.status === 401) {
-      throw new Error(`Invalid API key. Please check your OpenWeatherMap API key and ensure your account is activated. Status: ${response.status}`);
-    }
     throw new Error(`Weather API error: ${response.status} ${response.statusText}`);
   }
 
-  const data: WeatherApiResponse = await response.json();
-  
-  // Group by day and calculate daily averages
-  const dailyData: { [date: string]: any } = {};
-  
-  data.list.forEach(item => {
-    const date = new Date(item.dt * 1000).toISOString().split('T')[0];
-    if (!dailyData[date]) {
-      dailyData[date] = {
-        temps: [],
-        humidity: [],
-        windSpeed: [],
-        precipitation: 0,
-        weather: item.weather[0]?.main || "Clear"
-      };
-    }
-    
-    dailyData[date].temps.push(item.main.temp);
-    dailyData[date].humidity.push(item.main.humidity);
-    dailyData[date].windSpeed.push(item.wind.speed);
-    dailyData[date].precipitation += (item.rain?.["3h"] || 0);
-  });
-  
-  return Object.entries(dailyData).slice(0, days).map(([date, data]) => ({
-    date,
-    precipitation: data.precipitation,
-    evaporation: calculateEvaporation(
-      data.temps.reduce((a: number, b: number) => a + b, 0) / data.temps.length,
-      data.humidity.reduce((a: number, b: number) => a + b, 0) / data.humidity.length,
-      data.windSpeed.reduce((a: number, b: number) => a + b, 0) / data.windSpeed.length
-    ),
-    temperature: data.temps.reduce((a: number, b: number) => a + b, 0) / data.temps.length,
-    humidity: data.humidity.reduce((a: number, b: number) => a + b, 0) / data.humidity.length,
-    windSpeed: data.windSpeed.reduce((a: number, b: number) => a + b, 0) / data.windSpeed.length,
-    weather: data.weather
+  const data = await response.json();
+
+  if (!data.daily && !data.list) {
+    throw new Error("Weather API returned empty or invalid data.");
+  }
+
+  return data.list.map((day: any) => ({
+    rawDate: new Date(day.dt * 1000).toISOString().split("T")[0],
+    temperature: day.temp.day,
+    humidity: day.humidity,
+    windSpeed: day.speed,
+    precipitation: day.rain || 0,
+    evaporation: calculateEvaporation(day.temp.day, day.humidity, day.speed),
+    weather: day.weather?.[0]?.main || "Clear"
   }));
 }
 
 function calculateEvaporation(temp: number, humidity: number, windSpeed: number): number {
-  // Simplified Penman equation for reference evapotranspiration
   const delta = 4098 * (0.6108 * Math.exp(17.27 * temp / (temp + 237.3))) / Math.pow(temp + 237.3, 2);
-  const gamma = 0.665; // psychrometric constant
-  const u2 = windSpeed * 4.87 / Math.log(67.8 * 10 - 5.42); // wind speed at 2m height
-  
-  // Simplified calculation (mm/day)
+  const gamma = 0.665;
+  const u2 = windSpeed * 4.87 / Math.log(67.8 * 10 - 5.42);
   const et0 = (0.0023 * (temp + 17.8) * Math.sqrt(Math.abs(temp - humidity)) * (100 - humidity) / 100) + (0.0001 * u2);
-  return Math.max(0, Math.min(15, et0)); // Cap between 0-15 mm/day
+  return Math.max(0, Math.min(15, et0));
 }
 
 function determineSoilType(latitude: number, longitude: number): string {
-  // Simplified soil type determination based on geographic regions
-  // In reality, this would use soil databases or APIs
   const absLat = Math.abs(latitude);
   const absLon = Math.abs(longitude);
-  
-  if (absLat > 60) return "sandy"; // Arctic regions
-  if (absLat < 30 && absLon < 50) return "clay"; // Tropical regions
-  if (absLat >= 30 && absLat <= 50) return "clayLoam"; // Temperate regions
-  return "loam"; // Default
+  if (absLat > 60) return "sandy";
+  if (absLat < 30 && absLon < 50) return "clay";
+  if (absLat >= 30 && absLat <= 50) return "clayLoam";
+  return "loam";
 }
 
 function calculateSoilMoisture(
@@ -108,13 +131,13 @@ function calculateSoilMoisture(
   const waterInput = precipitation;
   const waterOutput = evaporation + cropWaterUse;
   const drainage = Math.max(0, (initialMoisture + waterInput - waterOutput) * soil.drainageRate);
-  
+
   let newMoisture = initialMoisture + waterInput - waterOutput - drainage;
   return Math.max(0, Math.min(100, newMoisture));
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  
+
   app.post("/api/chat", async (req, res) => {
     try {
       const { message, forecastData } = req.body;
@@ -123,88 +146,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Message is required" });
       }
   
-      const apiKey = "AIzaSyBaOQMQbeP-ACNwGlZ_XxTrbkhn1AZ2300";
+      const apiKey = process.env.DEEPSEEK_API_KEY || "sk-64e3249d0dcd43268038f0946c2a7bce";
   
-      // 构建上下文
-      let context = "你是一个专业的农业种植AI助手。请用中文回答用户的问题，提供实用的种植建议。";
+      let context = "You are a professional AI assistant helping with agriculture.";
   
       if (forecastData) {
-        context += `\n\n当前用户的农场信息：
-  - 作物类型: ${forecastData.cropType || '未知'}
-  - 土壤类型: ${forecastData.soilType || '未知'}
-  - 当前土壤湿度: ${forecastData.currentMoisture || '未知'}%
-  - 位置: 纬度 ${forecastData.location?.latitude || '未知'}, 经度 ${forecastData.location?.longitude || '未知'}`;
-  
-        if (forecastData.weatherSummary) {
-          context += "\n- 未来几天天气预测: " +
-            forecastData.weatherSummary.map((day: any) =>
-              `${day.date}: 温度${day.temperature?.toFixed(1)}°C, 降水${day.precipitation?.toFixed(1)}mm`
-            ).join("; ");
-        }
+        context += `\n\nCrop: ${forecastData.cropType}, Soil: ${forecastData.soilType}, Moisture: ${forecastData.currentMoisture}%.`;
       }
   
-      // 请求体
-      const geminiRequestBody = {
-        prompt: {
-          messages: [
-            { author: "system", content: context },
-            { author: "user", content: message }
-          ]
+      const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
         },
-        temperature: 0.7,
-        candidateCount: 1,
-        topP: 0.8,
-        topK: 40
-      };
-  
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta2/models/chat-bison-001:generateMessage?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(geminiRequestBody)
-        }
-      );
-  
-      if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
-      }
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          messages: [
+            { role: "system", content: context },
+            { role: "user", content: message }
+          ]
+        })
+      });
   
       const data = await response.json();
-      const aiResponse = data?.candidates?.[0]?.content || "抱歉，我无法理解您的问题。请重新表述一下。";
+      console.log("🔍 DeepSeek response:", JSON.stringify(data, null, 2));
+  
+      if (!response.ok) {
+        return res.status(response.status).json({
+          message: data?.error?.message || "Failed to get DeepSeek response"
+        });
+      }
+  
+      const aiResponse = data?.choices?.[0]?.message?.content;
+  
+      if (!aiResponse) {
+        return res.status(500).json({ message: "DeepSeek returned no content" });
+      }
   
       res.json({ response: aiResponse });
   
-    } catch (error) {
-      console.error("Error in chat endpoint:", error);
-      res.status(500).json({
-        message: error instanceof Error ? error.message : "Failed to get AI response"
-      });
+    } catch (err) {
+      console.error("❌ Error in DeepSeek chat:", err);
+      res.status(500).json({ message: "Server error" });
     }
   });
-  
   app.post("/api/irrigation-forecast", async (req, res) => {
     try {
       const validatedData = insertIrrigationForecastSchema.parse(req.body);
-      
-      // Create initial forecast record
       const forecast = await storage.createIrrigationForecast(validatedData);
-      
-      // Determine soil type based on coordinates
       const soilType = determineSoilType(validatedData.latitude, validatedData.longitude);
-      
-      // Fetch weather data
+  
       const weatherData = await fetchWeatherData(
         validatedData.latitude,
         validatedData.longitude,
         validatedData.forecastPeriod
       );
-      
-      // Store weather data
+  
       const storedWeatherData = await storage.createWeatherData(
-        weatherData.map(w => ({ 
+        weatherData.map(w => ({
           date: w.date,
           forecastId: forecast.id,
           precipitation: w.precipitation,
@@ -214,48 +214,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
           windSpeed: w.windSpeed
         }))
       );
-      
-      // Calculate irrigation schedule
+  
+      // === 新增：先创建多边形获取 polyid ===
+      const polyid = await createPolygon(validatedData.latitude, validatedData.longitude);
+  
+      // === 新增：调用土壤湿度接口获取初始湿度 ===
+      let currentMoisture = await fetchSoilMoistureByPolyId(polyid);
+  
+      // 若获取失败，退回默认值
+      if (currentMoisture === null) {
+        currentMoisture = 40 + Math.random() * 20;
+      }
+  
       const cropInfo = cropThresholds[validatedData.cropType as keyof typeof cropThresholds];
-      let currentMoisture = 65; // Starting soil moisture percentage
-      
+  
+      // 计算种植日期
+      const [year, month, day] = validatedData.plantingDate.split("-").map(Number);
+      const plantingStartDate = new Date(year, month - 1, day);
+  
       const schedule = weatherData.map((day, index) => {
+        const forecastDate = new Date(plantingStartDate);
+        forecastDate.setDate(plantingStartDate.getDate() + index);
+  
+        const formattedDate = forecastDate.toLocaleDateString('en-CA'); // yyyy-MM-dd
+  
         currentMoisture = calculateSoilMoisture(
-          currentMoisture,
+          currentMoisture!,
           day.precipitation,
           day.evaporation,
           cropInfo.waterUse,
           soilType as keyof typeof soilTypes
         );
-        
-        const irrigationNeeded = currentMoisture < cropInfo.critical;
-        const irrigationVolume = irrigationNeeded ? 
-          Math.ceil((cropInfo.optimal - currentMoisture) * 0.5) : 0;
-        
-        // Apply irrigation if needed
+  
+        const enoughRain = day.precipitation >= cropInfo.waterUse;
+        const irrigationNeeded = !enoughRain && currentMoisture < cropInfo.critical;
+        const irrigationVolume = irrigationNeeded
+          ? Math.ceil((cropInfo.optimal - currentMoisture) * 0.5)
+          : 0;
+  
         if (irrigationNeeded) {
           currentMoisture += irrigationVolume;
         }
-        
+  
         return {
           forecastId: forecast.id,
-          date: day.date,
+          date: formattedDate,
           soilMoisture: Math.round(currentMoisture * 10) / 10,
           irrigationNeeded,
           irrigationVolume: irrigationNeeded ? irrigationVolume : null,
           weather: day.weather.toString()
         };
       });
-      
-      // Store irrigation schedule
+  
       const storedSchedule = await storage.createIrrigationSchedule(schedule);
-      
-      // Update forecast with soil type and current moisture
       const updatedForecast = await storage.updateIrrigationForecast(forecast.id, {
         soilType,
         currentSoilMoisture: currentMoisture
       });
-      
+  
       res.json({
         forecast: updatedForecast,
         weatherData: storedWeatherData,
@@ -263,33 +279,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         soilType,
         cropInfo
       });
-      
+  
     } catch (error) {
       console.error("Error creating irrigation forecast:", error);
-      res.status(400).json({ 
+      res.status(400).json({
         message: error instanceof Error ? error.message : "Failed to create irrigation forecast"
       });
     }
   });
 
+
   app.get("/api/irrigation-forecast/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const forecast = await storage.getIrrigationForecast(id);
-      
       if (!forecast) {
         return res.status(404).json({ message: "Forecast not found" });
       }
-      
+
       const weatherData = await storage.getWeatherDataByForecastId(id);
       const schedule = await storage.getIrrigationScheduleByForecastId(id);
-      
+
       res.json({
         forecast,
         weatherData,
         schedule
       });
-      
+
     } catch (error) {
       console.error("Error fetching irrigation forecast:", error);
       res.status(500).json({ message: "Failed to fetch irrigation forecast" });
