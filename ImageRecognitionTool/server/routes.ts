@@ -6,15 +6,17 @@ import { z } from "zod";
 const AGRO_API_KEY = "ca01c833004206b018aa226e8cc72131"; // 请用你自己的key
 
 // 自动生成一个小方形多边形坐标（示范）
-function generateSquarePolygon(lat: number, lon: number, sizeInMeters = 50) {
+// 生成正方形多边形，坐标顺序经度、纬度，闭合点相同
+function generateSquarePolygon(lat: number, lon: number, sizeInMeters = 150) { // 150米边长更保险
   const delta = sizeInMeters / 111000;
-  return [
-    [lat - delta, lon - delta],
-    [lat + delta, lon - delta],
-    [lat + delta, lon + delta],
-    [lat - delta, lon + delta],
-    [lat - delta, lon - delta], // 闭合首尾
+  const coordinates = [
+    [lon - delta, lat - delta],
+    [lon - delta, lat + delta],
+    [lon + delta, lat + delta],
+    [lon + delta, lat - delta],
   ];
+  coordinates.push(coordinates[0]);
+  return coordinates;
 }
 
 async function createPolygon(lat: number, lon: number): Promise<string> {
@@ -29,7 +31,7 @@ async function createPolygon(lat: number, lon: number): Promise<string> {
   };
 
   const response = await fetch(
-    `http://api.agromonitoring.com/agro/1.0/polygons?appid=${AGRO_API_KEY}`,
+    `http://api.agromonitoring.com/agro/1.0/polygons?appid=${AGRO_API_KEY}&duplicated=true`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -41,11 +43,12 @@ async function createPolygon(lat: number, lon: number): Promise<string> {
   );
 
   if (!response.ok) {
-    throw new Error(`Failed to create polygon: ${response.statusText}`);
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(`Failed to create polygon: ${response.statusText} ${errorData.message || ''}`);
   }
 
   const data = await response.json();
-  return data.id; // 返回polyid
+  return data.id;
 }
 
 async function fetchSoilMoistureByPolyId(polyid: string): Promise<number | null> {
